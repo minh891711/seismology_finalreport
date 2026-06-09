@@ -1,1 +1,677 @@
-
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>地震學期末報告｜整學期回顧與樹莓派地震儀</title>
+  <meta name="description" content="地震學課程期末報告：整學期作業回顧 + 樹莓派 Raspberry Pi 地震儀實作成果展示"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <style>
+    /* ══════════════════════════════════════
+       DESIGN TOKENS
+    ══════════════════════════════════════ */
+    :root{
+      --bg:       #030a1c;
+      --bg2:      rgba(6,16,40,.92);
+      --glass:    rgba(255,255,255,.035);
+      --red:      #ff3b5c;   --red-d:   rgba(255,59,92,.16);
+      --orange:   #ff8c42;   --orange-d:rgba(255,140,66,.14);
+      --teal:     #00d4b8;   --teal-d:  rgba(0,212,184,.14);
+      --blue:     #4da6ff;   --blue-d:  rgba(77,166,255,.13);
+      --purple:   #9b59e8;   --purple-d:rgba(155,89,232,.14);
+      --yellow:   #ffd166;   --yellow-d:rgba(255,209,102,.12);
+      --green:    #2ecc71;   --green-d: rgba(46,204,113,.13);
+      --pink:     #ff6eb4;   --pink-d:  rgba(255,110,180,.13);
+      --tx1:#eef3ff; --tx2:#8899bb; --tx3:#3d5077;
+      --border:rgba(100,140,220,.14);
+      --r:16px;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{
+      font-family:'Noto Sans TC','Inter',sans-serif;
+      background:var(--bg);color:var(--tx1);
+      overflow-x:hidden;min-height:100vh;
+    }
+    /* ── ambient blobs ── */
+    body::before{
+      content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+      background:
+        radial-gradient(ellipse 65% 42% at 12% 7%,  rgba(77,100,255,.14) 0%,transparent 65%),
+        radial-gradient(ellipse 50% 38% at 88% 85%, rgba(255,59,92,.11)  0%,transparent 60%),
+        radial-gradient(ellipse 40% 52% at 52% 52%, rgba(0,212,184,.05)  0%,transparent 70%);
+    }
+    ::-webkit-scrollbar{width:5px}
+    ::-webkit-scrollbar-track{background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:var(--tx3);border-radius:3px}
+    /* ══════════════════════════════════════
+       NAV
+    ══════════════════════════════════════ */
+    nav{
+      position:fixed;top:0;left:0;right:0;z-index:300;height:56px;
+      display:flex;align-items:center;justify-content:space-between;padding:0 28px;
+      background:rgba(3,10,28,.82);backdrop-filter:blur(22px);
+      border-bottom:1px solid var(--border);
+    }
+    .nav-brand{display:flex;align-items:center;gap:9px;font-size:.88rem;font-weight:800;letter-spacing:-.01em;text-decoration:none;color:var(--tx1)}
+    .pulsedot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red);animation:blink 1.4s infinite;flex-shrink:0}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+    .nav-links{display:flex;gap:20px;list-style:none}
+    .nav-links a{font-size:.76rem;color:var(--tx2);text-decoration:none;letter-spacing:.04em;transition:color .2s}
+    .nav-links a:hover{color:var(--tx1)}
+    @media(max-width:720px){.nav-links{display:none}}
+    /* ══════════════════════════════════════
+       TICKER
+    ══════════════════════════════════════ */
+    .ticker{
+      margin-top:56px;overflow:hidden;
+      background:rgba(255,59,92,.05);
+      border-bottom:1px solid rgba(255,59,92,.16);padding:9px 0;
+    }
+    .ticker-inner{display:flex;gap:60px;animation:tick 24s linear infinite;white-space:nowrap}
+    .ti{font-size:.71rem;font-family:'JetBrains Mono',monospace;color:var(--red);letter-spacing:.07em}
+    @keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+    /* ══════════════════════════════════════
+       LAYOUT HELPERS
+    ══════════════════════════════════════ */
+    .wrap{max-width:1080px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+    .divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent)}
+    section{padding:80px 0}
+    .sec-lbl{font-size:.67rem;letter-spacing:.24em;text-transform:uppercase;font-weight:700;color:var(--teal);margin-bottom:10px}
+    .sec-title{font-size:clamp(1.8rem,4vw,2.7rem);font-weight:900;letter-spacing:-.02em;line-height:1.12;margin-bottom:14px}
+    .sec-desc{color:var(--tx2);font-size:.97rem;line-height:1.82;max-width:640px;margin-bottom:46px}
+    .grad-r{background:linear-gradient(135deg,var(--red) 0%,var(--orange) 55%,var(--yellow) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .grad-t{background:linear-gradient(135deg,var(--teal) 0%,var(--blue) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    /* ══════════════════════════════════════
+       HERO
+    ══════════════════════════════════════ */
+    .hero{
+      min-height:96vh;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;text-align:center;
+      padding:80px 24px 60px;position:relative;z-index:1;
+    }
+    .badge{
+      display:inline-flex;align-items:center;gap:8px;
+      background:var(--red-d);border:1px solid rgba(255,59,92,.35);
+      color:var(--red);border-radius:50px;padding:6px 20px;
+      font-size:.74rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+      margin-bottom:24px;animation:fsd .8s both;
+    }
+    .hero h1{font-size:clamp(2.6rem,6.5vw,4.8rem);font-weight:900;line-height:1.08;letter-spacing:-.025em;margin-bottom:14px;animation:fsd .9s .1s both}
+    .hero-sub{font-size:clamp(.95rem,2vw,1.18rem);color:var(--tx2);font-weight:300;letter-spacing:.05em;margin-bottom:16px;animation:fsd 1s .2s both}
+    .hero-desc{max-width:620px;color:var(--tx2);line-height:1.82;font-size:.97rem;margin-bottom:38px;animation:fsd 1s .3s both}
+    .hero-chips{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;animation:fsd 1s .4s both;margin-bottom:52px}
+    .chip{padding:6px 14px;border-radius:8px;font-size:.76rem;font-weight:600;letter-spacing:.04em;border:1px solid;cursor:default}
+    .ct{background:var(--teal-d);border-color:rgba(0,212,184,.3);color:var(--teal)}
+    .cb{background:var(--blue-d);border-color:rgba(77,166,255,.3);color:var(--blue)}
+    .cp{background:var(--purple-d);border-color:rgba(155,89,232,.3);color:var(--purple)}
+    .co{background:var(--orange-d);border-color:rgba(255,140,66,.3);color:var(--orange)}
+    .cr{background:var(--red-d);border-color:rgba(255,59,92,.3);color:var(--red)}
+    .cy{background:var(--yellow-d);border-color:rgba(255,209,102,.3);color:var(--yellow)}
+    .cg{background:var(--green-d);border-color:rgba(46,204,113,.3);color:var(--green)}
+    /* scroll hint */
+    .scroll-hint{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--tx3);font-size:.7rem;letter-spacing:.1em;animation:fadeIn 2s 1.2s both}
+    .arrow{width:17px;height:17px;border-right:2px solid var(--tx3);border-bottom:2px solid var(--tx3);transform:rotate(45deg);animation:bounce 2s infinite}
+    @keyframes bounce{0%,100%{transform:rotate(45deg) translateY(0)}50%{transform:rotate(45deg) translateY(5px)}}
+    /* ══════════════════════════════════════
+       ASSIGNMENT GRID
+    ══════════════════════════════════════ */
+    .hw-grid{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:18px;
+    }
+    @media(max-width:860px){.hw-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:560px){.hw-grid{grid-template-columns:1fr}}
+    .hw-card{
+      background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);
+      overflow:hidden;backdrop-filter:blur(14px);
+      display:flex;flex-direction:column;
+      transition:transform .3s,box-shadow .3s,border-color .3s;
+      position:relative;
+    }
+    .hw-card::before{
+      content:'';position:absolute;inset:0;opacity:0;
+      background:linear-gradient(135deg,rgba(255,255,255,.03),transparent);
+      transition:opacity .3s;pointer-events:none;border-radius:var(--r);
+    }
+    .hw-card:hover{transform:translateY(-5px);box-shadow:0 16px 48px rgba(0,0,0,.35)}
+    .hw-card:hover::before{opacity:1}
+    /* card colour accent strip */
+    .hw-strip{height:3px;width:100%}
+    .hw-card-inner{padding:22px 20px;flex:1;display:flex;flex-direction:column}
+    .hw-num{font-size:.68rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;margin-bottom:8px;font-family:'JetBrains Mono',monospace}
+    .hw-title{font-size:1rem;font-weight:800;line-height:1.3;margin-bottom:10px}
+    .hw-desc{color:var(--tx2);font-size:.83rem;line-height:1.72;flex:1;margin-bottom:18px}
+    /* link button */
+    .hw-btn{
+      display:inline-flex;align-items:center;gap:7px;
+      padding:9px 18px;border-radius:9px;
+      font-size:.8rem;font-weight:700;letter-spacing:.04em;
+      text-decoration:none;border:1px solid;
+      transition:background .25s,box-shadow .25s,transform .2s;
+      align-self:flex-start;
+    }
+    .hw-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+    .hw-btn svg{width:13px;height:13px;flex-shrink:0}
+    /* text-only cards (作業3, 作業6) */
+    .text-card{
+      background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);
+      overflow:hidden;backdrop-filter:blur(14px);
+      grid-column:span 3;
+      transition:border-color .3s;
+    }
+    @media(max-width:860px){.text-card{grid-column:span 2}}
+    @media(max-width:560px){.text-card{grid-column:span 1}}
+    .text-card-head{
+      display:flex;align-items:center;gap:16px;
+      padding:20px 24px;cursor:pointer;user-select:none;
+    }
+    .text-card-head:hover .tc-arrow{color:var(--tx1)}
+    .tc-strip-box{width:4px;height:44px;border-radius:2px;flex-shrink:0}
+    .tc-meta{flex:1}
+    .tc-num{font-size:.67rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;margin-bottom:4px;font-family:'JetBrains Mono',monospace}
+    .tc-title{font-size:1.02rem;font-weight:800}
+    .tc-arrow{font-size:1.2rem;color:var(--tx3);transition:transform .3s,color .2s}
+    .text-card.open .tc-arrow{transform:rotate(90deg);color:var(--tx1)}
+    .text-body{display:none;padding:0 24px 24px;border-top:1px solid var(--border);animation:fadeIn .3s}
+    .text-card.open .text-body{display:block}
+    .text-content{color:var(--tx2);font-size:.91rem;line-height:1.88;margin-top:18px;white-space:pre-line}
+    .text-content strong{color:var(--tx1);font-weight:600}
+    .questions{margin-top:20px;padding:16px 20px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px}
+    .questions-title{font-size:.75rem;font-weight:700;color:var(--teal);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px}
+    .q-item{display:flex;gap:10px;margin-bottom:10px;font-size:.87rem;color:var(--tx2);line-height:1.65}
+    .q-item:last-child{margin-bottom:0}
+    .q-num{flex-shrink:0;width:22px;height:22px;border-radius:6px;background:var(--teal-d);border:1px solid rgba(0,212,184,.3);color:var(--teal);font-size:.72rem;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;font-family:'JetBrains Mono',monospace}
+    .pdf-btn{
+      display:inline-flex;align-items:center;gap:8px;
+      margin-top:18px;padding:10px 20px;border-radius:10px;
+      font-size:.82rem;font-weight:700;text-decoration:none;
+      background:var(--red-d);border:1px solid rgba(255,59,92,.35);color:var(--red);
+      transition:background .25s,box-shadow .25s,transform .2s;
+    }
+    .pdf-btn:hover{background:rgba(255,59,92,.25);transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,59,92,.2)}
+    /* ══════════════════════════════════════
+       RPi PROJECT SECTION
+    ══════════════════════════════════════ */
+    .rpi-hero{
+      background:linear-gradient(135deg,rgba(255,59,92,.07) 0%,rgba(77,100,255,.08) 50%,rgba(0,212,184,.05) 100%);
+      border:1px solid rgba(0,212,184,.2);border-radius:24px;
+      padding:48px 44px;margin-bottom:40px;position:relative;overflow:hidden;
+    }
+    .rpi-hero::after{content:'';position:absolute;top:-50px;right:-50px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(0,212,184,.15),transparent 70%);pointer-events:none}
+    .rpi-hero h3{font-size:1.7rem;font-weight:900;margin-bottom:12px}
+    .rpi-hero p{color:var(--tx2);line-height:1.82;font-size:.96rem;max-width:640px;margin-bottom:28px}
+    .rpi-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:32px}
+    .rpi-btn{
+      display:inline-flex;align-items:center;gap:9px;
+      padding:12px 26px;border-radius:11px;font-size:.9rem;font-weight:700;
+      text-decoration:none;
+      background:linear-gradient(135deg,var(--teal),var(--blue));
+      color:#fff;transition:box-shadow .25s,transform .2s;
+      box-shadow:0 4px 20px rgba(0,212,184,.25);
+    }
+    .rpi-btn:hover{transform:translateY(-3px);box-shadow:0 10px 36px rgba(0,212,184,.4)}
+    /* photo + data grid */
+    .photo-row{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+    @media(max-width:680px){.photo-row{grid-template-columns:1fr}}
+    .photo-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;backdrop-filter:blur(12px);transition:transform .3s,box-shadow .3s,border-color .3s}
+    .photo-card:hover{transform:translateY(-5px);border-color:rgba(77,166,255,.4);box-shadow:0 16px 44px rgba(77,166,255,.12)}
+    .photo-card img{width:100%;height:230px;object-fit:cover;display:block;transition:transform .5s}
+    .photo-card:hover img{transform:scale(1.04)}
+    .photo-body{padding:16px 18px}
+    .photo-tag{font-size:.67rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--blue);margin-bottom:5px}
+    .photo-title{font-size:.96rem;font-weight:700;margin-bottom:7px}
+    .photo-desc{color:var(--tx2);font-size:.83rem;line-height:1.7}
+    .data-row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media(max-width:680px){.data-row{grid-template-columns:1fr}}
+    .data-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;backdrop-filter:blur(12px);transition:transform .3s,box-shadow .3s,border-color .3s}
+    .data-card:hover{transform:translateY(-5px);border-color:rgba(255,59,92,.4);box-shadow:0 16px 44px rgba(255,59,92,.1)}
+    .data-card img{width:100%;display:block;background:#fff}
+    .data-body{padding:16px 18px}
+    .data-tag{font-size:.67rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--red);margin-bottom:5px}
+    .data-title{font-size:.96rem;font-weight:700;margin-bottom:7px}
+    .data-desc{color:var(--tx2);font-size:.83rem;line-height:1.7}
+    /* pipeline */
+    .pipeline{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-top:36px}
+    .pipe{flex:1;min-width:120px;background:var(--glass);border:1px solid var(--border);border-radius:12px;padding:16px 12px;text-align:center;position:relative;transition:border-color .3s,box-shadow .3s}
+    .pipe:hover{border-color:rgba(77,166,255,.5);box-shadow:0 0 20px rgba(77,166,255,.1)}
+    .pipe+.pipe::before{content:'→';position:absolute;left:-8px;top:50%;transform:translateY(-50%);color:var(--blue);font-size:.85rem}
+    .pipe-ico{font-size:1.4rem;margin-bottom:7px}
+    .pipe-n{font-size:.78rem;font-weight:700;margin-bottom:4px}
+    .pipe-d{font-size:.67rem;color:var(--tx3);line-height:1.5}
+    @media(max-width:600px){.pipeline{flex-direction:column}.pipe+.pipe::before{display:none}}
+    /* ══════════════════════════════════════
+       CONCLUSION
+    ══════════════════════════════════════ */
+    .conclusion{
+      background:linear-gradient(135deg,rgba(255,59,92,.07),rgba(77,100,255,.07) 50%,rgba(0,212,184,.05));
+      border:1px solid rgba(255,59,92,.2);border-radius:24px;
+      padding:52px 46px;text-align:center;position:relative;overflow:hidden;
+    }
+    .conclusion::before{content:'';position:absolute;top:-55px;right:-55px;width:210px;height:210px;border-radius:50%;background:radial-gradient(circle,rgba(255,59,92,.18),transparent 70%);pointer-events:none}
+    .conclusion::after{content:'';position:absolute;bottom:-40px;left:-40px;width:170px;height:170px;border-radius:50%;background:radial-gradient(circle,rgba(0,212,184,.12),transparent 70%);pointer-events:none}
+    .conclusion h2{font-size:1.9rem;font-weight:900;margin-bottom:16px}
+    .conclusion p{max-width:600px;margin:0 auto 24px;color:var(--tx2);line-height:1.82;font-size:.96rem}
+    .ach-list{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:36px}
+    .ach{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:50px;padding:7px 15px;font-size:.82rem}
+    .ach .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 6px var(--teal);flex-shrink:0}
+    /* ══════════════════════════════════════
+       FOOTER
+    ══════════════════════════════════════ */
+    footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color:var(--tx3);font-size:.78rem;position:relative;z-index:1}
+    footer a{color:var(--teal);text-decoration:none}
+    /* ══════════════════════════════════════
+       ANIMATIONS
+    ══════════════════════════════════════ */
+    @keyframes fsd{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .reveal{opacity:0;transform:translateY(26px);transition:opacity .6s ease,transform .6s ease}
+    .reveal.vis{opacity:1;transform:translateY(0)}
+    /* colour shortcuts for strips/buttons */
+    .c-teal  {color:var(--teal)}
+    .c-blue  {color:var(--blue)}
+    .c-purple{color:var(--purple)}
+    .c-orange{color:var(--orange)}
+    .c-red   {color:var(--red)}
+    .c-yellow{color:var(--yellow)}
+    .c-green {color:var(--green)}
+    .c-pink  {color:var(--pink)}
+    .s-teal  {background:var(--teal)}
+    .s-blue  {background:var(--blue)}
+    .s-purple{background:var(--purple)}
+    .s-orange{background:var(--orange)}
+    .s-red   {background:var(--red)}
+    .s-yellow{background:var(--yellow)}
+    .s-green {background:var(--green)}
+    .s-pink  {background:var(--pink)}
+    .btn-teal  {background:var(--teal-d);border-color:rgba(0,212,184,.35);color:var(--teal)}
+    .btn-teal:hover{background:rgba(0,212,184,.25)}
+    .btn-blue  {background:var(--blue-d);border-color:rgba(77,166,255,.35);color:var(--blue)}
+    .btn-blue:hover{background:rgba(77,166,255,.25)}
+    .btn-purple{background:var(--purple-d);border-color:rgba(155,89,232,.35);color:var(--purple)}
+    .btn-purple:hover{background:rgba(155,89,232,.25)}
+    .btn-orange{background:var(--orange-d);border-color:rgba(255,140,66,.35);color:var(--orange)}
+    .btn-orange:hover{background:rgba(255,140,66,.25)}
+    .btn-yellow{background:var(--yellow-d);border-color:rgba(255,209,102,.35);color:var(--yellow)}
+    .btn-yellow:hover{background:rgba(255,209,102,.25)}
+    .btn-green {background:var(--green-d);border-color:rgba(46,204,113,.35);color:var(--green)}
+    .btn-green:hover{background:rgba(46,204,113,.25)}
+    .btn-pink  {background:var(--pink-d);border-color:rgba(255,110,180,.35);color:var(--pink)}
+    .btn-pink:hover{background:rgba(255,110,180,.25)}
+    .hw-card:has(.btn-teal):hover{border-color:rgba(0,212,184,.45);box-shadow:0 18px 52px rgba(0,212,184,.1)}
+    .hw-card:has(.btn-blue):hover{border-color:rgba(77,166,255,.45);box-shadow:0 18px 52px rgba(77,166,255,.1)}
+    .hw-card:has(.btn-purple):hover{border-color:rgba(155,89,232,.45);box-shadow:0 18px 52px rgba(155,89,232,.1)}
+    .hw-card:has(.btn-orange):hover{border-color:rgba(255,140,66,.45);box-shadow:0 18px 52px rgba(255,140,66,.1)}
+    .hw-card:has(.btn-yellow):hover{border-color:rgba(255,209,102,.45);box-shadow:0 18px 52px rgba(255,209,102,.1)}
+    .hw-card:has(.btn-green):hover{border-color:rgba(46,204,113,.45);box-shadow:0 18px 52px rgba(46,204,113,.1)}
+    .hw-card:has(.btn-pink):hover{border-color:rgba(255,110,180,.45);box-shadow:0 18px 52px rgba(255,110,180,.1)}
+    @media(max-width:540px){.conclusion{padding:34px 20px}}
+  </style>
+</head>
+<body>
+<!-- NAV -->
+<nav>
+  <a class="nav-brand" href="#top"><span class="pulsedot"></span>地震學期末報告</a>
+  <ul class="nav-links">
+    <li><a href="#semester">學期回顧</a></li>
+    <li><a href="#rpi">地震儀專案</a></li>
+    <li><a href="#conclusion">結語</a></li>
+  </ul>
+</nav>
+<!-- TICKER -->
+<div class="ticker">
+  <div class="ticker-inner">
+    <span class="ti">▶ X:−0.12g &nbsp;Y:+0.00g &nbsp;Z:+0.63g &nbsp;TOTAL:0.64g</span>
+    <span class="ti">⚠ TRIGGER DETECTED — TOTAL ACC = 1.00g 超過警報閾值</span>
+    <span class="ti">▶ 地震學 · Seismology · 2025–2026 學年度</span>
+    <span class="ti">📡 MPU-6050 I²C OK &nbsp;採樣率 100 Hz &nbsp;GPIO 警報就緒</span>
+    <span class="ti">▶ X:+0.10g &nbsp;Y:+0.24g &nbsp;Z:+1.00g &nbsp;VECTOR LOCKED</span>
+    <span class="ti">🌏 期末報告 · Final Report · Raspberry Pi Seismometer</span>
+    <span class="ti">▶ X:−0.12g &nbsp;Y:+0.00g &nbsp;Z:+0.63g &nbsp;TOTAL:0.64g</span>
+    <span class="ti">⚠ TRIGGER DETECTED — TOTAL ACC = 1.00g 超過警報閾值</span>
+    <span class="ti">▶ 地震學 · Seismology · 2025–2026 學年度</span>
+    <span class="ti">📡 MPU-6050 I²C OK &nbsp;採樣率 100 Hz &nbsp;GPIO 警報就緒</span>
+    <span class="ti">▶ X:+0.10g &nbsp;Y:+0.24g &nbsp;Z:+1.00g &nbsp;VECTOR LOCKED</span>
+    <span class="ti">🌏 期末報告 · Final Report · Raspberry Pi Seismometer</span>
+  </div>
+</div>
+<!-- ══════════ HERO ══════════ -->
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="badge">地震學 · 期末報告 · 2025–2026</div>
+    <h1>
+      <span class="grad-r">地震學</span><br/>
+      期末報告
+    </h1>
+    <p class="hero-sub">Seismology — Final Report &amp; Semester Review</p>
+    <p class="hero-desc">
+      涵蓋整學期十項課程作業回顧，以及以 Raspberry Pi 搭配 MPU-6050 加速度計
+      自製地震儀的完整實作成果，包含三軸數據分析與即時警報系統展示。
+    </p>
+    <div class="hero-chips">
+      <span class="chip ct">地震學理論</span>
+      <span class="chip cb">MPU-6050 實作</span>
+      <span class="chip cp">震源機制解</span>
+      <span class="chip co">NCREE 參訪</span>
+      <span class="chip cr">Raspberry Pi</span>
+      <span class="chip cy">三軸加速度分析</span>
+      <span class="chip cg">演講心得</span>
+    </div>
+  </div>
+  <div class="scroll-hint"><span>SCROLL</span><div class="arrow"></div></div>
+</section>
+<div class="divider"></div>
+<!-- ══════════ SEMESTER REVIEW ══════════ -->
+<section id="semester">
+  <div class="wrap">
+    <p class="sec-lbl reveal">Semester Review</p>
+    <h2 class="sec-title reveal">整學期課程回顧</h2>
+    <p class="sec-desc reveal">
+      從地震學基礎章節、震源機制繪製、實驗操作，到演講心得與校外參訪，
+      完整記錄 2025–2026 學年地震學課程的學習歷程。
+    </p>
+    <div class="hw-grid">
+      <!-- ── 作業 2 ── -->
+      <div class="hw-card reveal">
+        <div class="hw-strip s-teal"></div>
+        <div class="hw-card-inner">
+          <div class="hw-num c-teal">作業 02</div>
+          <div class="hw-title">地震學第一章報告</div>
+          <div class="hw-desc">地震學基礎概論，涵蓋地震波的種類、傳播原理與地震觀測方法，建立整學期學習的理論基礎。</div>
+          <a class="hw-btn btn-teal" href="https://minh891711.github.io/seismology_ch1/" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            前往報告
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 4 ── -->
+      <div class="hw-card reveal">
+        <div class="hw-strip s-blue"></div>
+        <div class="hw-card-inner">
+          <div class="hw-num c-blue">作業 04</div>
+          <div class="hw-title">地震學實驗心得分享</div>
+          <div class="hw-desc">透過實際操作地震波數據，學習如何以程式分析 SAC 波形，理解地震記錄的處理流程與實務應用。</div>
+          <a class="hw-btn btn-blue" href="https://huggingface.co/spaces/minshu10/seismic_exp" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            前往心得
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 5 ── -->
+      <div class="hw-card reveal">
+        <div class="hw-strip s-purple"></div>
+        <div class="hw-card-inner">
+          <div class="hw-num c-purple">作業 05</div>
+          <div class="hw-title">國家地震工程研究中心心得</div>
+          <div class="hw-desc">參訪 NCREE 國家地震工程研究中心，實地了解台灣在地震防災工程領域的尖端研究成果與設施。</div>
+          <a class="hw-btn btn-purple" href="https://huggingface.co/spaces/minshu10/NCREE" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            前往心得
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 7 ── -->
+      <div class="hw-card reveal">
+        <div class="hw-strip s-yellow"></div>
+        <div class="hw-card-inner">
+          <div class="hw-num c-yellow">作業 07</div>
+          <div class="hw-title">地震學第三章報告</div>
+          <div class="hw-desc">深入探討地震震源理論，包含彈性回跳理論、震源參數描述與地震矩張量的基本概念。</div>
+          <a class="hw-btn btn-yellow" href="https://minh891711.github.io/seismology_ch3/#intro" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            前往報告
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 8 ── -->
+      <div class="hw-card reveal">
+        <div class="hw-strip s-orange"></div>
+        <div class="hw-card-inner">
+          <div class="hw-num c-orange">作業 08</div>
+          <div class="hw-title">地震報告與繪製震源機制球</div>
+          <div class="hw-desc">針對 2025 年 10 月菲律賓地震進行分析，並實際繪製震源機制球（海灘球），理解地震破裂面幾何。</div>
+          <a class="hw-btn btn-orange" href="https://minh891711.github.io/251010_PH_earthquake/" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            前往報告
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 9 ── -->
+      <div class="hw-card reveal">
+        <div class="hw-strip s-green"></div>
+        <div class="hw-card-inner">
+          <div class="hw-num c-green">作業 09</div>
+          <div class="hw-title">地震學第四章 4.1 與 4.2 報告</div>
+          <div class="hw-desc">地震波在地球內部的傳播與折射，探討速度模型、走時曲線與地球內部結構的推斷方法。</div>
+          <a class="hw-btn btn-green" href="https://minh891711.github.io/seismology_ch4_4.1-4.2/#sec42" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            前往報告
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 10 ── -->
+      <div class="hw-card reveal">
+        <div class="hw-strip s-pink"></div>
+        <div class="hw-card-inner">
+          <div class="hw-num c-pink">作業 10</div>
+          <div class="hw-title">初動解繪製震源機制</div>
+          <div class="hw-desc">利用地震波 P 波初動極性，在震源球上標記各站點的壓縮與膨脹，進而判斷震源斷層面解。</div>
+          <a class="hw-btn btn-pink" href="https://minh891711.github.io/earthquake_focal_mechanisms/" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            前往作業
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 3（TEXT，占整列）── -->
+      <div class="text-card reveal" id="tc3">
+        <div class="hw-strip s-red"></div>
+        <div class="text-card-head" onclick="toggleTC('tc3')">
+          <div class="tc-strip-box s-red"></div>
+          <div class="tc-meta">
+            <div class="tc-num c-red">作業 03</div>
+            <div class="tc-title">張睿明老師演講心得 ＋ 菲律賓地震報告</div>
+          </div>
+          <span class="tc-arrow">›</span>
+        </div>
+        <div class="text-body">
+          <div class="text-content">
+這次演講主題與 <strong>AI 工具的使用</strong>相關，了解到現在用 AI 主要有 <strong>Browser、IDE、CLI</strong> 三種介面，其中 CLI 對 AI 最友善，功能也最多，我們日常用的多為 Browser。
+後面老師也有提到可以讓 AI 先生成 prompt 再執行，並親自示範，果然要寫出完整的內容，必須要有適當且精準的提示詞。
+而我印象最深的是老師最後介紹了他的 <strong>AI 團隊</strong>，不同的 AI 分工合作完成任務，我覺得非常酷且很有效率。
+最後，AI 是人們現今生活中不可或缺的一部分，我未接觸過的地方還很多，如果能好好了解並運用，能讓自己在學習、工作等方面更方便且有效率。整體來說這場演講的內容對我來說蠻有收穫。
+          </div>
+          <a class="pdf-btn" href="250930菲律賓地震報告.pdf" target="_blank">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            開啟 250930 菲律賓地震報告 PDF
+          </a>
+        </div>
+      </div>
+      <!-- ── 作業 6（TEXT，占整列）── -->
+      <div class="text-card reveal" id="tc6">
+        <div class="hw-strip s-blue"></div>
+        <div class="text-card-head" onclick="toggleTC('tc6')">
+          <div class="tc-strip-box s-blue"></div>
+          <div class="tc-meta">
+            <div class="tc-num c-blue">作業 06</div>
+            <div class="tc-title">宋冠毅老師演講心得 ── 海外交流與國際視野</div>
+          </div>
+          <span class="tc-arrow">›</span>
+        </div>
+        <div class="text-body">
+          <div class="text-content">
+這次的演講主題我認為很有意義，對一些人來說，或許會覺得到海外交流離自己很遠，遙不可及。但宋老師與我們分享了自己是如何尋找並把握機會，並跨出那一步。
+老師利用<strong>青年百億圓夢計畫</strong>中的築夢工場組，結合自己的專業知識，自主規劃計畫到了<strong>瑞士和美國</strong>學習與研討，我非常佩服。老師也建議我們可以朝哪些方向努力，除了培養專業知識能力外，主動參加相關活動與建立人脈也很關鍵。
+旅程中也獲得了豐富收穫，從專業防災地震技術，到海外適應能力，擴展了自己的視野，也建立了國際合作的基礎。最後也鼓勵我們，只要願意開始，都有很多資源跟機會，能夠讓自己一步步走向國際。
+我自己在網路上也看過蠻多人推薦青年百億圓夢計畫，而現階段的我想先精進自己的英文或其他外語能力，有一定能力後會想試試看。
+          </div>
+          <div class="questions">
+            <div class="questions-title">💬 課後提問</div>
+            <div class="q-item">
+              <div class="q-num">Q1</div>
+              <div>在瑞士進行實務觀摩，將台灣與瑞士作比較後，有哪些部分是台灣可學習之處？又或是您在當地討論時有沒有特別提出您覺得台灣做的很好的部分？</div>
+            </div>
+            <div class="q-item">
+              <div class="q-num">Q2</div>
+              <div>三個多月的旅程中，遇到最大或最印象深刻的突發狀況是什麼？您當時是如何解決的？</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /hw-grid -->
+  </div>
+</section>
+<div class="divider"></div>
+<!-- ══════════ RPi PROJECT ══════════ -->
+<section id="rpi">
+  <div class="wrap">
+    <p class="sec-lbl reveal">Final Project</p>
+    <h2 class="sec-title reveal">期末專案：<span class="grad-t">樹莓派自製地震儀</span></h2>
+    <p class="sec-desc reveal">
+      以低成本單板電腦（Raspberry Pi）結合 MPU-6050 三軸加速度計，
+      打造能即時偵測地面振動、分析三軸加速度並在超過閾值時觸發聲光警報的地震監測裝置。
+      詳細步驟說明請參閱完整實作報告。
+    </p>
+    <!-- intro banner -->
+    <div class="rpi-hero reveal">
+      <h3>🔴 Raspberry Pi 地震儀系統</h3>
+      <p>
+        依照老師教學（UART 接線 → 驅動排錯 → Wi-Fi 設定 → MPU6050 實作），
+        完整建置樹莓派地震監測系統，並開發即時警報與數據視覺化功能。
+      </p>
+      <div class="rpi-chips">
+        <span class="chip ct">Raspberry Pi 4</span>
+        <span class="chip cb">MPU-6050 I²C</span>
+        <span class="chip cp">Python / matplotlib</span>
+        <span class="chip co">MobaXterm UART</span>
+        <span class="chip cr">GPIO 警報</span>
+        <span class="chip cy">三軸加速度分析</span>
+      </div>
+      <a class="rpi-btn" href="report.html" target="_blank">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        查看完整實作報告（含步驟教學）
+      </a>
+    </div>
+    <!-- hardware photos -->
+    <h3 class="reveal" style="font-size:1.15rem;font-weight:800;margin-bottom:16px;color:var(--tx2);letter-spacing:.02em;">▸ 硬體組裝實況</h3>
+    <div class="photo-row">
+      <div class="photo-card reveal">
+        <img src="S__223879173.jpg" alt="麵包板：MPU-6050、LED、蜂鳴器"/>
+        <div class="photo-body">
+          <div class="photo-tag">感測器模組</div>
+          <div class="photo-title">麵包板電路配置</div>
+          <div class="photo-desc">MPU-6050 藍色模組插入麵包板，四色杜邦線接至 GPIO，左側配置 LED 指示燈與蜂鳴器構成聲光雙重警報。</div>
+        </div>
+      </div>
+      <div class="photo-card reveal">
+        <img src="S__223879174.jpg" alt="Raspberry Pi 4 主板"/>
+        <div class="photo-body">
+          <div class="photo-tag">主控單元</div>
+          <div class="photo-title">Raspberry Pi 4 主板</div>
+          <div class="photo-desc">紅色 PWR 燈亮起表示系統正常上電，GPIO 已連接至麵包板，開機自動執行 Python 監控程式。</div>
+        </div>
+      </div>
+    </div>
+    <!-- data graphs -->
+    <h3 class="reveal" style="font-size:1.15rem;font-weight:800;margin:28px 0 16px;color:var(--tx2);letter-spacing:.02em;">▸ 實驗數據成果</h3>
+    <div class="data-row">
+      <div class="data-card reveal">
+        <img src="10sec.webp" alt="10 秒加速度歷程圖"/>
+        <div class="data-body">
+          <div class="data-tag">時間序列分析</div>
+          <div class="data-title">10 秒加速度歷程圖</div>
+          <div class="data-desc">
+            Z 軸維持 ~0.6 g，<strong>X 軸在 T ≈ −2.5 s 出現最大 ±0.7 g 衝擊峰</strong>，
+            合力（紅線）在 T = 0 突破 1.0 g 閾值，觸發警報。
+          </div>
+        </div>
+      </div>
+      <div class="data-card reveal">
+        <img src="force_vector.webp" alt="觸發瞬間 3D 力向量"/>
+        <div class="data-body">
+          <div class="data-tag">三維向量分析</div>
+          <div class="data-title">觸發瞬間 3D 力向量</div>
+          <div class="data-desc">
+            觸發瞬間：<code style="font-family:'JetBrains Mono',monospace;background:rgba(77,166,255,.12);border:1px solid rgba(77,166,255,.2);color:var(--blue);border-radius:4px;padding:1px 5px;font-size:.82em">X:+0.10g  Y:+0.24g  Z:+1.00g</code><br/>
+            向量幾乎垂直指向 Z 軸，顯示此次觸發為垂直方向近場振動。
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- pipeline -->
+    <h3 class="reveal" style="font-size:1.15rem;font-weight:800;margin:32px 0 14px;color:var(--tx2);letter-spacing:.02em;">▸ 系統運作流程</h3>
+    <div class="pipeline reveal">
+      <div class="pipe"><div class="pipe-ico">🔩</div><div class="pipe-n">硬體感測</div><div class="pipe-d">MPU-6050<br/>100 Hz 三軸</div></div>
+      <div class="pipe"><div class="pipe-ico">📡</div><div class="pipe-n">I²C 傳輸</div><div class="pipe-d">數據送至<br/>RPi GPIO</div></div>
+      <div class="pipe"><div class="pipe-ico">🐍</div><div class="pipe-n">Python 處理</div><div class="pipe-d">合力計算<br/>閾值判斷</div></div>
+      <div class="pipe"><div class="pipe-ico">⚠️</div><div class="pipe-n">警報觸發</div><div class="pipe-d">LED 閃爍<br/>蜂鳴器鳴叫</div></div>
+      <div class="pipe"><div class="pipe-ico">📊</div><div class="pipe-n">資料儲存</div><div class="pipe-d">±10 s 事件<br/>寫入 CSV</div></div>
+      <div class="pipe"><div class="pipe-ico">📈</div><div class="pipe-n">視覺化</div><div class="pipe-d">時序圖<br/>3D 力向量</div></div>
+    </div>
+  </div>
+</section>
+<div class="divider"></div>
+<!-- ══════════ CONCLUSION ══════════ -->
+<section id="conclusion">
+  <div class="wrap">
+    <div class="conclusion reveal">
+      <h2>課程總結與心得</h2>
+      <p>
+        這學期地震學課程帶給我豐富且多元的學習體驗：從扎實的理論基礎（地震波、震源機制、地球內部結構），
+        到實驗操作、校外參訪、演講激勵，再到期末親手打造地震儀——
+        每一項作業都讓我對「地震」有了更深刻且具體的認識。
+      </p>
+      <div class="ach-list">
+        <div class="ach"><span class="dot"></span>地震學第一章理論基礎</div>
+        <div class="ach"><span class="dot"></span>AI 工具應用演講心得</div>
+        <div class="ach"><span class="dot"></span>菲律賓地震案例分析</div>
+        <div class="ach"><span class="dot"></span>地震學實驗操作</div>
+        <div class="ach"><span class="dot"></span>NCREE 國家地震工程中心參訪</div>
+        <div class="ach"><span class="dot"></span>海外交流演講心得</div>
+        <div class="ach"><span class="dot"></span>地震學第三章震源理論</div>
+        <div class="ach"><span class="dot"></span>震源機制球繪製</div>
+        <div class="ach"><span class="dot"></span>地球內部速度模型</div>
+        <div class="ach"><span class="dot"></span>初動解震源機制分析</div>
+        <div class="ach"><span class="dot"></span>Raspberry Pi 地震儀實作</div>
+        <div class="ach"><span class="dot"></span>三軸加速度即時監測</div>
+      </div>
+      <p style="font-size:.86rem;color:var(--tx3)">
+        感謝老師這學期精彩的課程安排與指導。
+        未來希望能將所學應用於更進階的地震監測與防災研究。
+      </p>
+    </div>
+  </div>
+</section>
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    地震學期末報告 &nbsp;·&nbsp; 2025–2026 學年 &nbsp;·&nbsp; Seismology Final Report<br/>
+    <span style="font-size:.72rem;margin-top:6px;display:block">
+      樹莓派教學參考：
+      <a href="https://oceanicdayi.github.io/raspberrypi_seismology/" target="_blank">oceanicdayi.github.io/raspberrypi_seismology</a>
+    </span>
+  </div>
+</footer>
+<script>
+  /* ── accordion for text cards ── */
+  function toggleTC(id){
+    document.getElementById(id).classList.toggle('open');
+  }
+  /* ── scroll reveal ── */
+  const obs = new IntersectionObserver(entries=>{
+    entries.forEach((e,i)=>{
+      if(e.isIntersecting){
+        setTimeout(()=>e.target.classList.add('vis'), 65*(e.target.dataset.d||0));
+        obs.unobserve(e.target);
+      }
+    });
+  },{threshold:.08});
+  document.querySelectorAll('.reveal').forEach((el,i)=>{
+    el.dataset.d = i % 5;
+    obs.observe(el);
+  });
+</script>
+</body>
+</html>
