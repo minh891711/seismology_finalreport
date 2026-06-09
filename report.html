@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>樹莓派地震儀完整實作報告 | Raspberry Pi Seismometer</title>
+  <meta name="description" content="從 UART 接線、驅動排錯、Wi-Fi 設定到 MPU6050 三軸加速度感測器完整實作，含期末實驗成果分析。"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <style>
+    /* ─── TOKENS ─── */
+    :root{
+      --bg:#04091a;
+      --bg2:rgba(8,18,42,0.9);
+      --glass:rgba(255,255,255,0.03);
+      --red:#ff3b5c;   --red-dim:rgba(255,59,92,.18);
+      --orange:#ff8c42;
+      --teal:#00d4b8;  --teal-dim:rgba(0,212,184,.15);
+      --blue:#4da6ff;  --blue-dim:rgba(77,166,255,.14);
+      --purple:#9b59e8;--purple-dim:rgba(155,89,232,.15);
+      --yellow:#ffd166;
+      --tx1:#eef3ff; --tx2:#8899bb; --tx3:#445577;
+      --border:rgba(100,140,220,.16);
+      --r:18px;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Noto Sans TC','Inter',sans-serif;background:var(--bg);color:var(--tx1);overflow-x:hidden}
+
+    /* ─── BG BLOBS ─── */
+    body::before{
+      content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+      background:
+        radial-gradient(ellipse 70% 45% at 15% 8%,rgba(77,100,255,.13) 0%,transparent 65%),
+        radial-gradient(ellipse 55% 40% at 85% 85%,rgba(255,59,92,.10) 0%,transparent 60%),
+        radial-gradient(ellipse 45% 55% at 50% 50%,rgba(0,212,184,.05) 0%,transparent 70%);
+    }
+
+    /* ─── SCROLLBAR ─── */
+    ::-webkit-scrollbar{width:6px}
+    ::-webkit-scrollbar-track{background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:var(--tx3);border-radius:3px}
+
+    /* ─── NAV ─── */
+    nav{
+      position:fixed;top:0;left:0;right:0;z-index:200;height:58px;
+      display:flex;align-items:center;justify-content:space-between;padding:0 28px;
+      background:rgba(4,9,26,.8);backdrop-filter:blur(20px);
+      border-bottom:1px solid var(--border);
+    }
+    .nav-brand{display:flex;align-items:center;gap:9px;font-size:.9rem;font-weight:700}
+    .pulsedot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red);animation:blink 1.4s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+    .nav-links{display:flex;gap:22px;list-style:none}
+    .nav-links a{font-size:.78rem;color:var(--tx2);text-decoration:none;letter-spacing:.04em;transition:color .2s}
+    .nav-links a:hover{color:var(--tx1)}
+    @media(max-width:700px){.nav-links{display:none}}
+
+    /* ─── TICKER ─── */
+    .ticker{
+      margin-top:58px;overflow:hidden;
+      background:rgba(255,59,92,.05);
+      border-bottom:1px solid rgba(255,59,92,.18);
+      padding:10px 0;
+    }
+    .ticker-inner{display:flex;gap:64px;animation:tick 22s linear infinite;white-space:nowrap}
+    .ticker-item{font-size:.73rem;font-family:'JetBrains Mono',monospace;color:var(--red);letter-spacing:.07em}
+    @keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+    /* ─── CONTAINER ─── */
+    .wrap{max-width:1060px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+
+    /* ─── HERO ─── */
+    .hero{min-height:92vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px 24px 60px;position:relative;z-index:1}
+    .badge{display:inline-flex;align-items:center;gap:8px;background:var(--red-dim);border:1px solid rgba(255,59,92,.35);color:var(--red);border-radius:50px;padding:6px 18px;font-size:.75rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:26px;animation:fsd .8s both}
+    .hero h1{font-size:clamp(2.4rem,6vw,4.4rem);font-weight:900;line-height:1.1;letter-spacing:-.02em;margin-bottom:12px;animation:fsd .9s .1s both}
+    .grad{background:linear-gradient(135deg,var(--red) 0%,var(--orange) 50%,var(--yellow) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .hero-sub{font-size:clamp(.95rem,2vw,1.2rem);color:var(--tx2);font-weight:300;letter-spacing:.05em;margin-bottom:14px;animation:fsd 1s .2s both}
+    .hero-desc{max-width:660px;color:var(--tx2);line-height:1.8;font-size:.98rem;margin-bottom:40px;animation:fsd 1s .3s both}
+    .chips{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;animation:fsd 1s .4s both;margin-bottom:24px}
+    .chip{padding:6px 15px;border-radius:8px;font-size:.78rem;font-weight:600;letter-spacing:.04em;border:1px solid}
+    .ct{background:var(--teal-dim);border-color:rgba(0,212,184,.3);color:var(--teal)}
+    .cb{background:var(--blue-dim);border-color:rgba(77,166,255,.3);color:var(--blue)}
+    .cp{background:var(--purple-dim);border-color:rgba(155,89,232,.3);color:var(--purple)}
+    .co{background:rgba(255,140,66,.12);border-color:rgba(255,140,66,.3);color:var(--orange)}
+    .cr{background:var(--red-dim);border-color:rgba(255,59,92,.3);color:var(--red)}
+    .cy{background:rgba(255,209,102,.1);border-color:rgba(255,209,102,.3);color:var(--yellow)}
+    .scroll-hint{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--tx3);font-size:.72rem;letter-spacing:.1em;animation:fadeIn 2s 1.2s both}
+    .arrow{width:18px;height:18px;border-right:2px solid var(--tx3);border-bottom:2px solid var(--tx3);transform:rotate(45deg);animation:bounce 2s infinite}
+    @keyframes bounce{0%,100%{transform:rotate(45deg) translateY(0)}50%{transform:rotate(45deg) translateY(5px)}}
+
+    /* ─── SECTION COMMON ─── */
+    section{padding:80px 0}
+    .sec-label{font-size:.68rem;letter-spacing:.22em;text-transform:uppercase;font-weight:700;color:var(--teal);margin-bottom:10px}
+    .sec-title{font-size:clamp(1.7rem,4vw,2.6rem);font-weight:800;letter-spacing:-.02em;line-height:1.15;margin-bottom:14px}
+    .sec-desc{color:var(--tx2);font-size:.97rem;line-height:1.82;max-width:620px;margin-bottom:44px}
+    .divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent)}
+
+    /* ─── STATS ─── */
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:56px}
+    @media(max-width:780px){.stats{grid-template-columns:repeat(2,1fr)}}
+    .stat{background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:22px 18px;text-align:center;backdrop-filter:blur(10px);transition:border-color .3s,box-shadow .3s}
+    .stat:hover{border-color:rgba(0,212,184,.4);box-shadow:0 0 28px rgba(0,212,184,.09)}
+    .stat-val{font-size:1.9rem;font-weight:900;font-family:'JetBrains Mono',monospace;background:linear-gradient(135deg,var(--teal),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:5px}
+    .stat-lbl{font-size:.73rem;color:var(--tx3);letter-spacing:.05em;line-height:1.5}
+
+    /* ─── STEP CARDS (tutorial steps) ─── */
+    .steps{display:flex;flex-direction:column;gap:20px}
+    .step-card{
+      background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);
+      overflow:hidden;backdrop-filter:blur(12px);
+      transition:border-color .3s,box-shadow .3s;
+    }
+    .step-card:hover{border-color:rgba(77,166,255,.4);box-shadow:0 12px 48px rgba(77,166,255,.09)}
+    .step-head{display:flex;align-items:center;gap:16px;padding:22px 28px;cursor:pointer;user-select:none}
+    .step-num{
+      flex-shrink:0;width:38px;height:38px;border-radius:10px;
+      display:flex;align-items:center;justify-content:center;
+      font-family:'JetBrains Mono',monospace;font-size:.85rem;font-weight:700;
+    }
+    .n1{background:var(--teal-dim);color:var(--teal);border:1px solid rgba(0,212,184,.3)}
+    .n2{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(77,166,255,.3)}
+    .n3{background:var(--purple-dim);color:var(--purple);border:1px solid rgba(155,89,232,.3)}
+    .n4{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,59,92,.3)}
+    .n5{background:rgba(255,140,66,.12);color:var(--orange);border:1px solid rgba(255,140,66,.3)}
+    .n6{background:rgba(255,209,102,.1);color:var(--yellow);border:1px solid rgba(255,209,102,.3)}
+    .step-title-wrap{flex:1}
+    .step-main-title{font-size:1.05rem;font-weight:700;margin-bottom:3px}
+    .step-tag{font-size:.72rem;color:var(--tx3);letter-spacing:.06em}
+    .step-icon{font-size:1.3rem;transition:transform .3s}
+    .step-card.open .step-icon{transform:rotate(90deg)}
+    .step-body{display:none;padding:0 28px 28px;border-top:1px solid var(--border);animation:fadeIn .3s}
+    .step-card.open .step-body{display:block}
+
+    /* ─── CONTENT inside steps ─── */
+    .content-text{color:var(--tx2);font-size:.92rem;line-height:1.82;margin-bottom:14px}
+    .content-text strong{color:var(--tx1);font-weight:600}
+
+    /* wiring table */
+    .wire-table{width:100%;border-collapse:collapse;margin:18px 0;font-size:.88rem}
+    .wire-table th{background:rgba(77,166,255,.08);color:var(--blue);font-weight:700;padding:10px 14px;text-align:left;border-bottom:2px solid rgba(77,166,255,.2)}
+    .wire-table td{padding:9px 14px;border-bottom:1px solid var(--border);color:var(--tx2);font-family:'JetBrains Mono',monospace}
+    .wire-table tr:last-child td{border-bottom:none}
+    .wire-table tr:hover td{background:rgba(255,255,255,.02)}
+    .clr{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:middle}
+
+    /* code block */
+    .code-block{background:rgba(0,0,0,.55);border:1px solid rgba(77,166,255,.2);border-radius:10px;padding:18px 20px;margin:16px 0;overflow-x:auto}
+    .code-block pre{font-family:'JetBrains Mono',monospace;font-size:.82rem;color:#a6d3ff;line-height:1.7;white-space:pre}
+    .code-label{font-size:.68rem;color:var(--blue);letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:6px;font-family:'JetBrains Mono',monospace}
+
+    /* tip boxes */
+    .tip-box{border-radius:10px;padding:14px 18px;margin:14px 0;font-size:.88rem;line-height:1.75}
+    .tip-warn{background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.25);color:var(--yellow)}
+    .tip-info{background:var(--teal-dim);border:1px solid rgba(0,212,184,.25);color:var(--teal)}
+    .tip-err {background:var(--red-dim);border:1px solid rgba(255,59,92,.3);color:var(--red)}
+    .tip-box .tip-title{font-weight:700;margin-bottom:4px}
+
+    /* sub-section */
+    .sub-head{font-size:.88rem;font-weight:700;color:var(--tx1);margin:20px 0 8px;padding-left:10px;border-left:3px solid var(--blue)}
+
+    /* bullet list */
+    .blist{list-style:none;display:flex;flex-direction:column;gap:9px;margin:10px 0}
+    .blist li{display:flex;align-items:flex-start;gap:10px;color:var(--tx2);font-size:.9rem;line-height:1.65}
+    .blist li::before{content:'›';color:var(--teal);font-weight:700;font-size:1.1rem;flex-shrink:0;margin-top:-1px}
+
+    /* ─── HW PHOTOS ─── */
+    .hw-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:8px}
+    @media(max-width:680px){.hw-grid{grid-template-columns:1fr}}
+    .hw-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;transition:transform .35s,box-shadow .35s,border-color .35s;backdrop-filter:blur(12px)}
+    .hw-card:hover{transform:translateY(-6px);border-color:rgba(77,166,255,.45);box-shadow:0 20px 56px rgba(77,166,255,.12)}
+    .hw-card img{width:100%;height:260px;object-fit:cover;display:block;transition:transform .5s}
+    .hw-card:hover img{transform:scale(1.04)}
+    .hw-body{padding:20px 22px}
+    .hw-tag{font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--blue);margin-bottom:6px}
+    .hw-title{font-size:1.08rem;font-weight:700;margin-bottom:10px}
+    .hw-desc{color:var(--tx2);font-size:.87rem;line-height:1.72}
+
+    /* ─── DATA GRAPHS ─── */
+    .data-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:8px}
+    @media(max-width:680px){.data-grid{grid-template-columns:1fr}}
+    .data-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;backdrop-filter:blur(12px);transition:transform .35s,box-shadow .35s,border-color .35s}
+    .data-card:hover{transform:translateY(-6px);border-color:rgba(255,59,92,.45);box-shadow:0 20px 56px rgba(255,59,92,.10)}
+    .data-card img{width:100%;display:block;background:#fff}
+    .data-body{padding:20px 22px}
+    .data-tag{font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--red);margin-bottom:6px}
+    .data-title{font-size:1.08rem;font-weight:700;margin-bottom:10px}
+    .data-desc{color:var(--tx2);font-size:.87rem;line-height:1.72}
+
+    /* ─── PIPELINE ─── */
+    .pipeline{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;margin-top:8px}
+    .pipe{flex:1;min-width:130px;background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:18px 14px;text-align:center;backdrop-filter:blur(8px);position:relative;transition:border-color .3s,box-shadow .3s}
+    .pipe:hover{border-color:rgba(77,166,255,.5);box-shadow:0 0 22px rgba(77,166,255,.11)}
+    .pipe+.pipe::before{content:'→';position:absolute;left:-10px;top:50%;transform:translateY(-50%);color:var(--blue);font-size:.9rem}
+    .pipe-ico{font-size:1.5rem;margin-bottom:8px}
+    .pipe-name{font-size:.8rem;font-weight:700;margin-bottom:5px}
+    .pipe-desc{font-size:.7rem;color:var(--tx3);line-height:1.5}
+
+    /* ─── CONCLUSION ─── */
+    .conclusion{background:linear-gradient(135deg,rgba(255,59,92,.07),rgba(77,100,255,.07) 50%,rgba(0,212,184,.05));border:1px solid rgba(255,59,92,.2);border-radius:24px;padding:50px 44px;text-align:center;position:relative;overflow:hidden}
+    .conclusion::before{content:'';position:absolute;top:-60px;right:-60px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,59,92,.18),transparent 70%);pointer-events:none}
+    .conclusion h2{font-size:1.9rem;font-weight:800;margin-bottom:18px}
+    .conclusion p{max-width:620px;margin:0 auto 28px;color:var(--tx2);line-height:1.82;font-size:.97rem}
+    .ach-list{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:36px}
+    .ach{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:50px;padding:7px 16px;font-size:.83rem}
+    .ach .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 6px var(--teal)}
+
+    /* ─── FOOTER ─── */
+    footer{border-top:1px solid var(--border);padding:34px 0;text-align:center;color:var(--tx3);font-size:.8rem;position:relative;z-index:1}
+
+    /* ─── ANIMATIONS ─── */
+    @keyframes fsd{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .reveal{opacity:0;transform:translateY(28px);transition:opacity .65s ease,transform .65s ease}
+    .reveal.vis{opacity:1;transform:translateY(0)}
+
+    @media(max-width:600px){
+      .conclusion{padding:34px 22px}
+      .pipeline{flex-direction:column}
+      .pipe+.pipe::before{display:none}
+    }
+
+    /* inline code */
+    code{font-family:'JetBrains Mono',monospace;background:var(--blue-dim);border:1px solid rgba(77,166,255,.2);color:var(--blue);border-radius:5px;padding:1px 6px;font-size:.84em}
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-brand"><span class="pulsedot"></span>樹莓派地震儀</div>
+  <ul class="nav-links">
+    <li><a href="#setup">硬體設定</a></li>
+    <li><a href="#mpu6050">MPU6050</a></li>
+    <li><a href="#hardware">實體成果</a></li>
+    <li><a href="#results">實驗數據</a></li>
+    <li><a href="#conclusion">結語</a></li>
+  </ul>
+</nav>
+
+<!-- TICKER -->
+<div class="ticker">
+  <div class="ticker-inner">
+    <span class="ticker-item">▶ X:−0.12g &nbsp; Y:+0.00g &nbsp; Z:+0.63g &nbsp; TOTAL:0.64g</span>
+    <span class="ticker-item">⚠ TRIGGER DETECTED — TOTAL ACC = 1.00g 超過警報閾值</span>
+    <span class="ticker-item">▶ X:+0.10g &nbsp; Y:+0.24g &nbsp; Z:+1.00g &nbsp; VECTOR LOCKED</span>
+    <span class="ticker-item">📡 MPU-6050 I²C OK &nbsp; 採樣率 100 Hz &nbsp; GPIO 警報就緒</span>
+    <span class="ticker-item">▶ X:−0.12g &nbsp; Y:+0.00g &nbsp; Z:+0.63g &nbsp; TOTAL:0.64g</span>
+    <span class="ticker-item">⚠ TRIGGER DETECTED — TOTAL ACC = 1.00g 超過警報閾值</span>
+    <span class="ticker-item">▶ X:+0.10g &nbsp; Y:+0.24g &nbsp; Z:+1.00g &nbsp; VECTOR LOCKED</span>
+    <span class="ticker-item">📡 MPU-6050 I²C OK &nbsp; 採樣率 100 Hz &nbsp; GPIO 警報就緒</span>
+  </div>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <div class="badge">地震學期末報告 · 2026</div>
+    <h1>樹莓派<br/><span class="grad">自製地震儀</span><br/>完整實作報告</h1>
+    <p class="hero-sub">Raspberry Pi DIY Seismometer — Full Implementation Guide</p>
+    <p class="hero-desc">
+      從 UART 終端機接線、Windows 驅動排錯、Wi-Fi 設定，到 MPU-6050 三軸加速度計程式撰寫，
+      完整記錄樹莓派地震儀的建置歷程，並展示期末實驗的量測成果。
+    </p>
+    <div class="chips">
+      <span class="chip ct">Raspberry Pi 3/4/5</span>
+      <span class="chip cb">MPU-6050 I²C</span>
+      <span class="chip cp">Python / matplotlib</span>
+      <span class="chip co">MobaXterm UART</span>
+      <span class="chip cr">即時警報系統</span>
+      <span class="chip cy">三軸加速度分析</span>
+    </div>
+  </div>
+  <div class="scroll-hint"><span>SCROLL</span><div class="arrow"></div></div>
+</section>
+
+<div class="divider"></div>
+
+<!-- STATS -->
+<section>
+  <div class="wrap">
+    <div class="stats reveal">
+      <div class="stat"><div class="stat-val">6</div><div class="stat-lbl">章節步驟<br/>完整教學</div></div>
+      <div class="stat"><div class="stat-val">3</div><div class="stat-lbl">量測軸向<br/>X · Y · Z</div></div>
+      <div class="stat"><div class="stat-val">1.0<span style="font-size:1rem">g</span></div><div class="stat-lbl">觸發閾值<br/>總合力</div></div>
+      <div class="stat"><div class="stat-val">10<span style="font-size:1rem">s</span></div><div class="stat-lbl">事件緩衝<br/>歷史視窗</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- SETUP STEPS -->
+<section id="setup">
+  <div class="wrap">
+    <p class="sec-label reveal">Step-by-Step Tutorial</p>
+    <h2 class="sec-title reveal">硬體設定與系統配置</h2>
+    <p class="sec-desc reveal">依照老師教學網站整理的六大步驟，從接線到 MPU6050 實作一步到位，<br/>適用 Raspberry Pi 3 / 4 / 5。</p>
+
+    <div class="steps">
+
+      <!-- STEP 1: UART Wiring -->
+      <div class="step-card reveal" id="card1">
+        <div class="step-head" onclick="toggle('card1')">
+          <div class="step-num n1">01</div>
+          <div class="step-title-wrap">
+            <div class="step-main-title">USB-to-TTL 6色線硬體接線</div>
+            <div class="step-tag">UART HARDWARE &nbsp;·&nbsp; GPIO 接線定義</div>
+          </div>
+          <span class="step-icon">›</span>
+        </div>
+        <div class="step-body">
+          <p class="content-text">
+            標準的 6 芯 FTDI / PL2303 線路中，每根杜邦線顏色對應固定訊號。
+            與樹莓派通訊時，<strong>僅需接 3 條線</strong>即可運作。
+          </p>
+          <table class="wire-table">
+            <thead><tr><th>顏色</th><th>訊號</th><th>樹莓派腳位</th><th>備註</th></tr></thead>
+            <tbody>
+              <tr><td><span class="clr" style="background:#333;border:1px solid #888"></span>黑色</td><td>GND</td><td>Pin 6 (GND)</td><td>必接</td></tr>
+              <tr><td><span class="clr" style="background:#eee;border:1px solid #888"></span>白色</td><td>RXD</td><td>Pin 8 (TXD / GPIO 14)</td><td>必接（交叉）</td></tr>
+              <tr><td><span class="clr" style="background:#2ecc71"></span>綠色</td><td>TXD</td><td>Pin 10 (RXD / GPIO 15)</td><td>必接（交叉）</td></tr>
+              <tr><td><span class="clr" style="background:#f0d000"></span>黃色</td><td>RTS</td><td>—</td><td>懸空不接</td></tr>
+              <tr><td><span class="clr" style="background:#3498db"></span>藍色</td><td>CTS</td><td>—</td><td>懸空不接</td></tr>
+              <tr><td><span class="clr" style="background:#e74c3c"></span>紅色</td><td>5 V</td><td>Pin 2 (5V)</td><td>⚠ 通常懸空；僅無外接電源時才接</td></tr>
+            </tbody>
+          </table>
+          <div class="tip-box tip-warn"><div class="tip-title">⚠ 注意</div>TX 接 RX、RX 接 TX，需交叉連接，切勿同名對接。</div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Driver -->
+      <div class="step-card reveal" id="card2">
+        <div class="step-head" onclick="toggle('card2')">
+          <div class="step-num n2">02</div>
+          <div class="step-title-wrap">
+            <div class="step-main-title">解決 Windows 驅動程式錯誤</div>
+            <div class="step-tag">PL2303 / FTDI &nbsp;·&nbsp; 裝置無法啟動 代碼 10</div>
+          </div>
+          <span class="step-icon">›</span>
+        </div>
+        <div class="step-body">
+          <p class="content-text">若系統顯示「<strong>USB-Serial Controller D 驅動程式錯誤</strong>」或「<strong>裝置無法啟動（代碼 10）</strong>」，依序嘗試以下方法：</p>
+
+          <div class="sub-head">方法 A：下載正確驅動程式</div>
+          <ul class="blist">
+            <li>前往 Prolific 官網下載 <strong>PL23XX-M_LogoDriver</strong> 壓縮檔（切勿只下載 SDK 包）</li>
+            <li>必須先<strong>完整解壓縮</strong>為普通資料夾，再以系統管理員身份執行 <code>.exe</code></li>
+          </ul>
+          <div class="tip-box tip-err"><div class="tip-title">✕ 常見錯誤</div>直接在 .zip 內執行 .exe 會出現「系統找不到指定的檔案 (0x2)」，務必先解壓縮。</div>
+
+          <div class="sub-head">方法 B：手動降版（適合舊版晶片）</div>
+          <ul class="blist">
+            <li>開啟「裝置管理員」→ 問題裝置上按右鍵「更新驅動程式」</li>
+            <li>選「瀏覽我的電腦以尋找驅動程式」→「讓我從可用清單挑選」</li>
+            <li>選擇 <strong>2014 年或更早</strong>的版本，即可解決代碼 10 錯誤</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- STEP 3: MobaXterm -->
+      <div class="step-card reveal" id="card3">
+        <div class="step-head" onclick="toggle('card3')">
+          <div class="step-num n3">03</div>
+          <div class="step-title-wrap">
+            <div class="step-main-title">MobaXterm 序列埠設定</div>
+            <div class="step-tag">115200 bps &nbsp;·&nbsp; Serial Session</div>
+          </div>
+          <span class="step-icon">›</span>
+        </div>
+        <div class="step-body">
+          <p class="content-text">驅動正常載入後，系統會分配一個通訊埠（如 COM4）。在 MobaXterm 的 <strong>Session → Serial</strong> 選單中設定：</p>
+          <table class="wire-table">
+            <thead><tr><th>設定項目</th><th>值</th></tr></thead>
+            <tbody>
+              <tr><td>Serial port</td><td>對應的 COM（例：COM4）</td></tr>
+              <tr><td>Speed (bps)</td><td><strong>115200</strong></td></tr>
+              <tr><td>Flow Control</td><td>None</td></tr>
+            </tbody>
+          </table>
+          <p class="content-text">成功連線後終端機顯示：</p>
+          <div class="code-block">
+            <div class="code-label">terminal output</div>
+            <pre>Debian GNU/Linux 13 raspberry1 ttyS0
+raspberry1 login: sysop
+Password: ********</pre>
+          </div>
+          <div class="tip-box tip-info"><div class="tip-title">💡 提示</div>若 COM 埠未出現，請確認驅動已正確安裝，並重新插拔 USB-TTL 線。</div>
+        </div>
+      </div>
+
+      <!-- STEP 4: Undervoltage -->
+      <div class="step-card reveal" id="card4">
+        <div class="step-head" onclick="toggle('card4')">
+          <div class="step-num n4">04</div>
+          <div class="step-title-wrap">
+            <div class="step-main-title">排除掉壓警告 (Undervoltage)</div>
+            <div class="step-tag">hwmon1: Undervoltage detected! &nbsp;·&nbsp; 電源管理</div>
+          </div>
+          <span class="step-icon">›</span>
+        </div>
+        <div class="step-body">
+          <p class="content-text">當輸入電壓跌破 <strong>4.63 V</strong> 安全底線時，系統會持續提示此警告，可能造成降頻、死機或記憶卡毀損。</p>
+          <div class="sub-head">常見原因</div>
+          <ul class="blist">
+            <li>不小心將 UART 紅線 (5V) 接上，嘗試透過電腦 USB 供電</li>
+            <li>Type-C 電源線內阻過大或線身太長導致壓降</li>
+            <li>變壓器額定功率不足（未達 5V/3A 或 5V/5A）</li>
+          </ul>
+          <div class="sub-head">解決方法</div>
+          <ul class="blist">
+            <li>拔掉 UART 上的紅線，<strong>僅保留 GND、RX、TX</strong></li>
+            <li>使用樹莓派官方推薦的專用變壓器進行主體供電</li>
+            <li>改用高品質、粗銅導體的短接 Type-C 充電線</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- STEP 5: Wi-Fi -->
+      <div class="step-card reveal" id="card5">
+        <div class="step-head" onclick="toggle('card5')">
+          <div class="step-num n5">05</div>
+          <div class="step-title-wrap">
+            <div class="step-main-title">終端機 Wi-Fi 管理設定</div>
+            <div class="step-tag">nmtui &nbsp;·&nbsp; raspi-config &nbsp;·&nbsp; nmcli</div>
+          </div>
+          <span class="step-icon">›</span>
+        </div>
+        <div class="step-body">
+          <p class="content-text">在沒有顯示器時，透過以下三種方式快速連上 Wi-Fi：</p>
+
+          <div class="sub-head">① nmtui（推薦，視覺化文字選單）</div>
+          <div class="code-block"><div class="code-label">bash</div><pre>sudo nmtui</pre></div>
+          <p class="content-text">最適合新版系統（Bookworm+），具備視覺化文字選單，不易打錯密碼。</p>
+
+          <div class="sub-head">② raspi-config（傳統選單）</div>
+          <div class="code-block"><div class="code-label">bash</div><pre>sudo raspi-config</pre></div>
+          <p class="content-text">可設定國家代碼（如 TW），避免 5 GHz 連線問題。</p>
+
+          <div class="sub-head">③ nmcli（底層指令調試）</div>
+          <div class="code-block"><div class="code-label">bash</div><pre>sudo nmcli device wifi</pre></div>
+          <div class="tip-box tip-warn">
+            <div class="tip-title">⚠ 連接公開網路（無密碼）</div>
+            連接如「CWA-FREE」的 Open 網路時，<strong>不要</strong>在 nmcli 指令中帶入 <code>password</code> 參數，否則會報錯 <code>key-mgmt: property is missing</code>。
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 6: MPU6050 -->
+      <div class="step-card reveal" id="card6">
+        <div class="step-head" onclick="toggle('card6')">
+          <div class="step-num n6">06</div>
+          <div class="step-title-wrap">
+            <div class="step-main-title">MPU6050 加速度計實作</div>
+            <div class="step-tag">I²C &nbsp;·&nbsp; mpu6050-raspberrypi &nbsp;·&nbsp; Python</div>
+          </div>
+          <span class="step-icon">›</span>
+        </div>
+        <div class="step-body">
+          <div class="sub-head">必要前置步驟</div>
+          <div class="code-block"><div class="code-label">① 開啟 I²C 介面</div><pre>sudo raspi-config
+# → Interface Options → I2C → Enable</pre></div>
+          <div class="code-block"><div class="code-label">② 確認 MPU6050 位址（應顯示 0x68）</div><pre>sudo i2cdetect -y 1</pre></div>
+          <div class="code-block"><div class="code-label">③ 安裝 Python 套件</div><pre>pip install mpu6050-raspberrypi</pre></div>
+
+          <div class="sub-head">讀取三軸加速度 · 陀螺儀 · 溫度</div>
+          <div class="code-block"><div class="code-label">python — sensor_read.py</div><pre>import time
+from mpu6050 import mpu6050
+
+# 初始化 MPU6050，預設 I2C 位址 0x68
+try:
+    sensor = mpu6050(0x68)
+    print("成功初始化 MPU6050！")
+except Exception as e:
+    print(f"無法初始化：{e}")
+    exit()
+
+print("開始讀取資料，按 Ctrl+C 結束...\n")
+try:
+    while True:
+        accel = sensor.get_accel_data()   # 三軸加速度 (m/s²)
+        gyro  = sensor.get_gyro_data()    # 三軸角速度 (deg/s)
+        temp  = sensor.get_temp()         # 晶片溫度 (°C)
+
+        print("=" * 50)
+        print(f"加速度 → X:{accel['x']:.2f}  Y:{accel['y']:.2f}  Z:{accel['z']:.2f} m/s²")
+        print(f"角速度 → X:{gyro['x']:.2f}   Y:{gyro['y']:.2f}   Z:{gyro['z']:.2f} deg/s")
+        print(f"溫度   → {temp:.1f} °C")
+        time.sleep(0.5)   # 每秒採樣 2 次
+except KeyboardInterrupt:
+    print("\n程式已停止。")</pre></div>
+          <div class="tip-box tip-info"><div class="tip-title">💡 單位換算</div>MPU6050 預設量程 ±2g，raw 值需除以 16384 得到以 g 為單位的加速度。</div>
+        </div>
+      </div>
+
+    </div><!-- /steps -->
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- PIPELINE -->
+<section>
+  <div class="wrap">
+    <p class="sec-label reveal">System Architecture</p>
+    <h2 class="sec-title reveal">系統運作流程</h2>
+    <p class="sec-desc reveal">從感測到警報，全自動化執行，無需人工介入。</p>
+    <div class="pipeline reveal">
+      <div class="pipe"><div class="pipe-ico">🔩</div><div class="pipe-name">硬體感測</div><div class="pipe-desc">MPU-6050 100 Hz 三軸加速度</div></div>
+      <div class="pipe"><div class="pipe-ico">📡</div><div class="pipe-name">I²C 傳輸</div><div class="pipe-desc">原始數據送至 RPi GPIO</div></div>
+      <div class="pipe"><div class="pipe-ico">🐍</div><div class="pipe-name">Python 處理</div><div class="pipe-desc">合力計算、滾動緩衝、閾值判斷</div></div>
+      <div class="pipe"><div class="pipe-ico">⚠️</div><div class="pipe-name">警報觸發</div><div class="pipe-desc">LED 閃爍 + 蜂鳴器鳴叫</div></div>
+      <div class="pipe"><div class="pipe-ico">📊</div><div class="pipe-name">資料儲存</div><div class="pipe-desc">事件前後 10 s 寫入 CSV</div></div>
+      <div class="pipe"><div class="pipe-ico">📈</div><div class="pipe-name">視覺化</div><div class="pipe-desc">matplotlib 時序圖 + 3D 向量</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- HARDWARE PHOTOS -->
+<section id="hardware">
+  <div class="wrap">
+    <p class="sec-label reveal">Hardware</p>
+    <h2 class="sec-title reveal">實體成果：硬體組裝</h2>
+    <p class="sec-desc reveal">以麵包板快速搭建原型，無焊接即完成感測電路，Raspberry Pi 透過 GPIO I²C 直接驅動 MPU-6050。</p>
+    <div class="hw-grid">
+      <div class="hw-card reveal">
+        <img src="S__223879173.jpg" alt="麵包板：MPU-6050 加速度計、LED 指示燈、蜂鳴器接線"/>
+        <div class="hw-body">
+          <div class="hw-tag">感測器模組</div>
+          <div class="hw-title">麵包板電路配置</div>
+          <div class="hw-desc">
+            MPU-6050 藍色模組插入麵包板中央，四色杜邦線（VCC / GND / SCL / SDA）接至 Raspberry Pi GPIO。
+            左側配備 LED 指示燈（超閾值閃爍）與蜂鳴器（同步鳴叫），構成聲光雙重警報機制。
+          </div>
+        </div>
+      </div>
+      <div class="hw-card reveal">
+        <img src="S__223879174.jpg" alt="Raspberry Pi 4 主板：紅色 PWR LED 亮起，GPIO 已接線"/>
+        <div class="hw-body">
+          <div class="hw-tag">主控單元</div>
+          <div class="hw-title">Raspberry Pi 4 主板</div>
+          <div class="hw-desc">
+            右下角紅色 PWR 燈亮起表示系統正常上電。GPIO 排針已連接至麵包板，
+            開機後自動執行 Python 監控程式，以 I²C 匯流排持續讀取 MPU-6050 數據。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- DATA RESULTS -->
+<section id="results">
+  <div class="wrap">
+    <p class="sec-label reveal">Experimental Results</p>
+    <h2 class="sec-title reveal">實驗成果：量測數據分析</h2>
+    <p class="sec-desc reveal">
+      當合力加速度 ≥ 1.0 g 時觸發警報，系統自動記錄前後 10 秒歷程並輸出時序圖與 3D 力向量圖。
+    </p>
+    <div class="data-grid">
+      <div class="data-card reveal">
+        <img src="10sec.webp" alt="10 秒加速度歷程圖"/>
+        <div class="data-body">
+          <div class="data-tag">時間序列分析</div>
+          <div class="data-title">10 秒加速度歷程圖</div>
+          <div class="data-desc">
+            以觸發時刻（T = 0）為基準，向前追溯約 5 秒。Z 軸（鉛直）維持 ~0.6 g，
+            <strong>X 軸在 T ≈ −2.5 s 出現最大振幅 ±0.7 g</strong> 的衝擊峰值，
+            合力（紅線）在 T = 0 突破 <strong>1.0 g 警報閾值</strong>（紅色虛線），系統成功觸發。
+          </div>
+        </div>
+      </div>
+      <div class="data-card reveal">
+        <img src="force_vector.webp" alt="觸發瞬間 3D 力向量圖"/>
+        <div class="data-body">
+          <div class="data-tag">三維向量分析</div>
+          <div class="data-title">觸發瞬間 3D 力向量</div>
+          <div class="data-desc">
+            觸發瞬間三軸分量：<code>X:+0.10g</code>、<code>Y:+0.24g</code>、<code>Z:+1.00g</code>。
+            合力向量幾乎垂直指向 Z 軸（重力方向），水平分量甚小，
+            顯示此次觸發事件為<strong>垂直方向近場振動</strong>所引起。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- CONCLUSION -->
+<section id="conclusion">
+  <div class="wrap">
+    <div class="conclusion reveal">
+      <h2>專案總結與展望</h2>
+      <p>
+        本專案依照老師教學步驟，成功完成 UART 接線、驅動排錯、Wi-Fi 設定與 MPU-6050 實作，
+        並在此基礎上開發即時地震監測程式，實現聲光警報、滾動緩衝記錄與自動化數據視覺化功能。
+        量測結果顯示系統能正確辨識垂直方向近場振動，驗證了硬體電路與軟體演算法的正確性。
+      </p>
+      <div class="ach-list">
+        <div class="ach"><span class="dot"></span>UART 終端機成功連線</div>
+        <div class="ach"><span class="dot"></span>PL2303 驅動問題排除</div>
+        <div class="ach"><span class="dot"></span>Wi-Fi 無頭模式設定</div>
+        <div class="ach"><span class="dot"></span>MPU-6050 I²C 讀取</div>
+        <div class="ach"><span class="dot"></span>三軸即時加速度量測</div>
+        <div class="ach"><span class="dot"></span>可調閾值觸發警報</div>
+        <div class="ach"><span class="dot"></span>10 秒滾動緩衝記錄</div>
+        <div class="ach"><span class="dot"></span>GPIO 聲光雙重警報</div>
+        <div class="ach"><span class="dot"></span>matplotlib 時序圖輸出</div>
+        <div class="ach"><span class="dot"></span>3D 力向量視覺化</div>
+      </div>
+      <p style="font-size:.86rem;color:var(--tx3);">
+        未來方向：換用高靈敏度 MEMS 地震計、接入 TSMIP 即時資料流進行比對，
+        或部署至戶外固定點進行長時間環境背景噪聲研究。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    地震學期末報告 &nbsp;·&nbsp; 樹莓派地震儀完整實作 &nbsp;·&nbsp; 2026<br/>
+    <span style="font-size:.72rem;margin-top:6px;display:block;">教學參考：<a href="https://oceanicdayi.github.io/raspberrypi_seismology/" target="_blank" style="color:var(--teal);text-decoration:none;">oceanicdayi.github.io/raspberrypi_seismology</a></span>
+  </div>
+</footer>
+
+<script>
+  /* accordion */
+  function toggle(id){
+    const c = document.getElementById(id);
+    c.classList.toggle('open');
+  }
+
+  /* scroll reveal */
+  const obs = new IntersectionObserver(entries=>{
+    entries.forEach((e,i)=>{
+      if(e.isIntersecting){
+        setTimeout(()=>e.target.classList.add('vis'), 70*(e.target.dataset.d||0));
+        obs.unobserve(e.target);
+      }
+    });
+  },{threshold:.1});
+  document.querySelectorAll('.reveal').forEach((el,i)=>{el.dataset.d=i%5;obs.observe(el)});
+
+  /* open first card by default */
+  document.getElementById('card1').classList.add('open');
+</script>
+</body>
+</html>
